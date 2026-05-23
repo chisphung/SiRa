@@ -1,0 +1,3 @@
+cirr_data_path: "/home/otw/chiennhm/data/CIRR"
+hotel_data_path: "/home/otw/chiennhm/data/Hotels-50K"
+model_dir: "./checkpoints"
