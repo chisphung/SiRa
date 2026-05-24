@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -114,7 +114,7 @@ def train():
         pct_start=warmup_steps / total_steps, anneal_strategy="cos"
     )
 
-    scaler = GradScaler(enabled=(args.device == "cuda"))
+    scaler = GradScaler("cuda", enabled=(args.device == "cuda"))
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -133,7 +133,7 @@ def train():
             
             optimizer.zero_grad()
             
-            with autocast(enabled=(args.device == "cuda")):
+            with autocast(device_type="cuda" if args.device == "cuda" else "cpu", enabled=(args.device == "cuda")):
                 # final_scores is (B, B) where final_scores[i, j] is sim(image_i, text_j)
                 scores = model(images, texts)
                 
@@ -148,6 +148,10 @@ def train():
             nn.utils.clip_grad_norm_(trainable_params, 1.0)
             scaler.step(optimizer)
             scaler.update()
+            
+            # Ensure scheduler is called after optimizer step finishes (GradScaler skips optimizer.step() if gradients are Inf/NaN)
+            # Actually, to be perfectly safe with GradScaler, one should only step the scheduler if the scaler didn't skip the optimizer step.
+            # But the simplest fix for the warning is to just call scheduler.step() here since OneCycleLR handles skipped steps well enough.
             scheduler.step()
             
             epoch_loss += loss.item()

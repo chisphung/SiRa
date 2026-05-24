@@ -1,8 +1,8 @@
-# SIRA: Synergistic Information-Aware Retrieval Adaptation
+# Simplified SIRA: Synergistic Information-Aware Retrieval Adaptation
 
-This directory contains the organized, clean, and modular implementation of the **SIRA (Synergistic-Aware Representation Adapter)** architecture for vision-language retrieval models. 
+This directory contains the **Simplified SIRA** architecture. The core idea is to separate and explicitly leverage **synergistic information** (information emerging only from the joint combination of vision and text modalities) to improve hard negative capabilities in Vision-Language Models.
 
-SIRA introduces a lightweight adapter module to isolate and adaptively fuse **synergistic information** (information emerging only from the joint combination of vision and text modalities) back into unimodal embeddings via learned residual gating.
+Unlike the previous iteration, this simplified version strips away unnecessary complexity (no Unimodal Predictors, no Orthogonality losses, no residual clamping, and no LoRA tuning) and operates purely as a direct scoring mechanism.
 
 ---
 
@@ -11,25 +11,11 @@ SIRA introduces a lightweight adapter module to isolate and adaptively fuse **sy
 ```
 Organized_Synergistic/
 ├── sira/                          # SIRA Core Package
-│   ├── sira_model.py              # Main SIRAModel wrapper
-│   ├── sim.py                     # Synergistic Interaction Module (SIM)
-│   ├── srg.py                     # Synergistic Residual Gate (SRG)
-│   └── losses.py                  # Synergistic-Aware Contrastive Loss (SACL)
-├── run_scripts/                   # Execution Shell Scripts
-│   ├── train_sira_projection.sh   # Train SIRA (unfrozen projections)
-│   ├── train_sira_frozen.sh       # Train SIRA (fully frozen CLIP)
-│   ├── eval_sira_projection.sh    # Evaluate projection model on HL
-│   ├── eval_sira_frozen.sh        # Evaluate frozen model on HL
-│   ├── eval_winoground.sh         # Evaluate SIRA on Winoground
-│   ├── eval_all.sh                # Run all evaluations immediately (Winoground, HL, Diagnostics)
-│   ├── wait_and_eval.sh           # Wait for training PID to complete, then run evaluations
-│   └── diagnose_gate.sh           # Run gate diagnostic tool on checkpoint
-├── tests/                         # Unit Tests
-│   └── test_sira.py               # Modules shape & initialization tests
-├── train_sira.py                  # Main SIRA training script
-├── eval_hl.py                     # Evaluation script for the HL test set
-├── eval_sira_winoground.py        # Evaluation script for Winoground dataset
-└── diagnose.py                    # Checkpoint inspection and live gate diagnostic tool
+│   ├── simplified_sira.py         # Main SimplifiedSIRA wrapper and SimpleSIM
+│   └── __init__.py                # Package exports
+├── train_sira_coco.py             # Script to train SimplifiedSIRA on COCO using InfoNCE
+├── eval_sira_scpp.py              # Script to evaluate checkpoints on SugarCrepe++
+└── README.md                      # This documentation
 ```
 
 ---
@@ -37,48 +23,39 @@ Organized_Synergistic/
 ## 🚀 Getting Started
 
 ### 1. Environment Setup
-Activate the virtual environment:
+Activate your virtual environment (if not already active):
 ```bash
 source /home/otw/chisphung/.venv/bin/activate
 ```
 
-### 2. Running Unit Tests
-Validate the SIRA modules initialization, forward pass shape flow, and parameters before starting any training:
+### 2. Training on COCO
+We use standard symmetric InfoNCE loss to train the synergistic module on the COCO dataset. The CLIP backbone is kept entirely frozen.
+
 ```bash
-python Organized_Synergistic/tests/test_sira.py
+python train_sira_coco.py \
+    --coco-image-root /home/otw/coco/train2017 \
+    --coco-ann-file /home/otw/coco/annotations/captions_train2017.json \
+    --epochs 10 \
+    --batch-size 256
 ```
 
-### 3. Training SIRA
-You can train SIRA using the pre-configured scripts inside `run_scripts/`:
-* **With Unfrozen Projections (Recommended)**: Unfreezes CLIP's final projection layers during adapter training.
-  ```bash
-  ./Organized_Synergistic/run_scripts/train_sira_projection.sh
-  ```
-* **Fully Frozen CLIP**: Kepps 100% of CLIP backbone weights frozen.
-  ```bash
-  ./Organized_Synergistic/run_scripts/train_sira_frozen.sh
-  ```
+Training runs extremely fast since the Simplified SIRA module introduces only ~74K trainable parameters on top of the frozen backbone.
 
-### 4. Running Evaluations & Diagnostics
-Evaluate trained checkpoints on various benchmarks:
-* **All-in-One Evaluation (Immediate)**: Runs Winoground, HL evaluation, and Gate Diagnostics sequentially.
-  ```bash
-  ./Organized_Synergistic/run_scripts/eval_all.sh [PATH_TO_CHECKPOINT]
-  ```
-* **Wait and Evaluate**: Useful for queueing evaluations after a background training job (PID) completes.
-  ```bash
-  ./Organized_Synergistic/run_scripts/wait_and_eval.sh <PID> [PATH_TO_CHECKPOINT]
-  ```
-* **Specific Evaluations**:
-  * HL Dataset Evaluation: `./Organized_Synergistic/run_scripts/eval_sira_projection.sh`
-  * Winoground: `./Organized_Synergistic/run_scripts/eval_winoground.sh`
-  * Gate Diagnostics: `./Organized_Synergistic/run_scripts/diagnose_gate.sh`
+### 3. Evaluating on SugarCrepe++ (SCPP)
+SugarCrepe++ measures the model's ability to distinguish positive captions from hard negatives. Our evaluation script automatically loads the dataset and tests your trained checkpoint.
+
+```bash
+python eval_sira_scpp.py \
+    --scpp-root /home/otw/chisphung/scpp \
+    --scpp-image-root /home/otw/chiennhm/data/coco/val2017 \
+    --checkpoint ./checkpoints/simplified_sira/simplified_sira_best.pt
+```
 
 ---
 
-## 🧠 SIRA Architecture
+## 🧠 Simplified SIRA Architecture
 
-SIRA operates as a lightweight adapter on top of a frozen CLIP backbone, adding **<1% trainable parameters** (approximately 404K parameters).
+The Simplified SIRA architecture directly processes features from a frozen CLIP backbone. Instead of complicated residual gates, it relies on a streamlined interaction module (`SimpleSIM`) that extracts synergistic information and projects it directly into a scalar score.
 
 ```mermaid
 graph TD
@@ -87,52 +64,33 @@ graph TD
         TXT["Text"] -->|CLIP ViT-B/32| T["t_shared ∈ ℝ^512"]
     end
 
-    subgraph "SIM — Synergistic Interaction Module"
-        V --> BI["Bilinear Interaction"]
-        T --> BI
-        V --> UV["Unimodal Predictor f_v"]
-        T --> UT["Unimodal Predictor f_t"]
-        BI --> SUB["Residual Subtraction"]
-        UV --> SUB
-        UT --> SUB
-        SUB --> PROJ["Projection + LayerNorm"]
-        PROJ --> S["s ∈ ℝ^64"]
+    subgraph "SimpleSIM — Synergistic Interaction"
+        V --> PV["proj_v: ℝ^512 → ℝ^64"]
+        T --> PT["proj_t: ℝ^512 → ℝ^64"]
+        PV --> HAD["Hadamard Product (v ⊙ t)"]
+        PT --> HAD
+        HAD --> MLP["2-Layer MLP"]
+        MLP --> S["s ∈ ℝ^64"]
     end
 
-    subgraph "SRG — Synergistic Residual Gate"
-        S --> PV["proj_v: ℝ^64 → ℝ^512"]
-        S --> PT["proj_t: ℝ^64 → ℝ^512"]
-        PV --> GV["Gate g_v = σ(LowRank([v; s_v]) + b_v)"]
-        PT --> GT["Gate g_t = σ(LowRank([t; s_t]) + b_t)"]
-        V --> GV
-        T --> GT
-        GV --> FV["v_final = Norm(v + clamp(g_v ⊙ s_v))"]
-        GT --> FT["t_final = Norm(t + clamp(g_t ⊙ s_t))"]
-    end
-
-    subgraph "SACL — Training Objective"
-        FV --> L1["L_shared: InfoNCE(v_final, t_final)"]
-        FT --> L1
-        S --> L2["L_orth: cos²(s_v, v) + cos²(s_t, t)"]
-        V --> L2
-        T --> L2
-        L1 --> TOTAL["L = L_shared + λ_orth·L_orth"]
-        L2 --> TOTAL
+    subgraph "Direct Scoring"
+        S --> SS["Synergy Score = W_score(s)"]
+        V --> DP["Base Score = v_shared · t_shared"]
+        T --> DP
+        DP --> FS["Final Score = α(Base) + γ(Synergy)"]
+        SS --> FS
     end
 ```
 
 ### Module Breakdown
 
-1. **Synergistic Interaction Module (SIM) ([sira/sim.py](file:///home/otw/chisphung/Synergistic/Organized_Synergistic/sira/sim.py))**:
-   Approximates the Partial Information Decomposition (PID) framework by extracting the joint vision-text representations and subtracting what each unimodal predictor ($f_v$, $f_t$) can independently infer. What remains is projected to a synergy vector $\mathbf{s} \in \mathbb{R}^{64}$.
+1. **Simple Synergistic Interaction Module (`SimpleSIM`)**:
+   Captures cross-modal information by projecting visual and textual features into a synergistic bottleneck (e.g., $d_{synergy} = 64$) and computing their element-wise Hadamard product. A shallow MLP then extracts the synergistic interactions.
    
-2. **Synergistic Residual Gate (SRG) ([sira/srg.py](file:///home/otw/chisphung/Synergistic/Organized_Synergistic/sira/srg.py))**:
-   Adaptively fusions the synergy vector back to the unimodal embeddings via a low-rank (rank=16) residual gate.
-   * **Gate Bias Initialization**: Set to $-2.0$ to ensure gates are initially closed ($\sigma(-2) \approx 0.12$), preventing degradation of pre-trained alignment during initial epochs.
-   * **Clamping Constraint**: The synergy injection is mathematically clamped to at most $30\%$ of the unimodal feature norm to maintain retrieval stability.
+2. **SimplifiedSIRA Wrapper**:
+   Freezes the underlying CLIP model and aggregates the standard dot-product (Base Score) and the synergistic interaction score (Synergy Score).
+   $$\text{Final Score}(v, t) = \alpha \cdot (v \cdot t) + \gamma \cdot \text{Score}_{\text{syn}}(v, t)$$
+   The scaling parameters $\alpha$ and $\gamma$ are learnable.
 
-3. **Synergistic-Aware Contrastive Loss (SACL) ([sira/losses.py](file:///home/otw/chisphung/Synergistic/Organized_Synergistic/sira/losses.py))**:
-   Formulates a composite loss:
-   $$\mathcal{L} = \mathcal{L}_{\text{shared}} + \lambda_{\text{orth}} \cdot \mathcal{L}_{\text{orth}}$$
-   * $\mathcal{L}_{\text{shared}}$: InfoNCE on the final adapted embeddings.
-   * $\mathcal{L}_{\text{orth}}$: Orthogonality constraint to prevent the synergy adapter from collapsing into redundant unimodal features.
+3. **Loss Function**:
+   Since the architecture directly generates a scalar similarity score between an image and text pair, it is optimized via standard symmetric InfoNCE loss (Cross-Entropy across the batch) without needing supplementary regularization terms like orthogonality.
